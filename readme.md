@@ -1,4 +1,4 @@
-# Ephémérides
+# Ephémérides 0.5
 Permet de calculer les éphémérides du soleil et de la lune pour un observateur précis : lieu (latitude, longitude) et un moment précis (date, heure). 
 Affiche le résultat dans la terminal (CLI) mais aussi sous forme d'une page HTML (via la navigateur) accompagné du diagramme solaire de la journée (azimut et hauteur solaire selon l'heure de la journée) ainsi que la phase de la lune.
 
