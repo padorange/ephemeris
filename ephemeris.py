@@ -3,60 +3,87 @@
 
 __application__="ephemeris.py"
 __appname__="Éphémérides"
-__version__="0.4"
-__author__="Pierre-Alain Dorange"
-__copyright__=f"Copyright juillet 2025, {__author__}"
+__version__="0.5.2"
+__author__="Pierre-Alain Dorange (MadDog)"
+__copyright__=f"Copyright septembre 2025, {__author__}"
 __license__="BSD-3-Clauses"			# voir https://en.wikipedia.org/wiki/BSD_licenses
 __contact__="pdorange@mac.com"
+__source__="https://github.com/padorange/ephemeris"
 
 """
 	Ephemeris
 	-----------------------------------------------------------------------------------------
-	Script Python 3.11, testé sur Debian 12 (bookworm)
+	Script Python 3.13, testé sur Debian 13 (trixie)
 	-----------------------------------------------------------------------------------------
-	Permet de calculer les données astronomique de lever et coucher du soleil par rapport à un point sur terre
-	grace à la bibliothéque Astral, inclus dans certaines distribution.
-	Debian inclus la version Astral 1.6.1, un peu ancienne, mais c'est l'API utilisé par ce script (défaut de Python 3.11 pour Debian).
+	Permet de calculer les données astronomique du soleil et de la lune par rapport à un point (observateur)sur terre
+		grâce à la bibliothèque Astral, inclus dans la plupart des distributions Python.
+	Debian 13 inclus la version Astral 3.2, rien à installer.
+	
+	-- Modules astral (installé par défaut pour Python3 / Debian 13)------------------------------------------------------------------------
+		Astral 3.2 (https://sffjunkie.github.io/astral/index.html)
 	-- Modules spécifiques à installer (licences : voir readme.md) ---------------------------
-		MatPlotLib 3.3.x (https://matplotlib.org/)
+		MatPlotLib 3.10 (https://matplotlib.org/)
 			permet de réaliser de jolis graphiques
+			
 	-- Notions Astronomiques -----------------------------------------------------------------
-		Coordonnées équatoriales (indépendant de l'observateur)
-		Equinoxe : instant ou le soleil traverse le plan équatoral terreste (durée jour = durée nuit)
-					équinoxe de printemps et équinoxe d'hiver
-					référence : https://fr.wikipedia.org/wiki/%C3%89quinoxe
-		Solstice : instant ou la position apparente solaire atteint sa plus grande inclinaison vers le Nord ou le Sud
-					solstice d'hiver : jour le plus court (nuit la plus longue)
-					solstice d'été : jour le plus long (nuit la plus courte)
-					référence : https://fr.wikipedia.org/wiki/Solstice
+		Voir le fichier readme.md		
+		Heure dorée			instant ou le disque solaire est 4° sous l'horizon
+		Heure bleu			instant ou le disque solaire est 4 et 6° sous l'horizon
 	-- Paramètres CLI ------------------------------------------------------------------------
-		-h : aide
+		-h  : aide
 		-dX : ajout X jours à la date actuelle
-		-s : afficher l'image du diagramme solaire
-		-w : affiche le HTML crée avec le navigateur
-		-x : mode debug
-	-----------------------------------------------------------------------------------------
+		-s  : afficher l'image du diagramme solaire
+		-w  : affiche le HTML crée avec le navigateur
+		-x  : mode debug
+	-- Historique ------------------------------------------------------------------------------
 	0.1 : janvier-février 2025 : première version
 	0.2 : février-mars 2025 : résultat sous forme HTML5 + option CLI "-d"
 	0.3 : mars-avril 2025 : intégration diagramme solaire en azimuth et hauteur + position solaire selon target_date + paramètre "-s"
 	0.4 : juillet 2025 : debug calcul variation durée jour + ajout option CLI "-x", "-s" et "-w" + optimisation du code
+	0.5 : septembre 2025 : adaptation pour astral 3.2 (par défaut avec Debian trixie)
+						gestion exception ValueError pour le calcul lunaire (pas de lever)
+						retour à la police de caractères par défaut de MatPlotLib : default_font="DejaVu Sans" pour éviter l'erreur de font non disponible
+						correction lecture longitude dans default.ini
+						utilisation des heures locales partout (datetime aware)
+						correction calcul de l'élévation solaire (heure local au lieu de UTC+0)
+						amélioration rédaction du readme.md
+						afficher timedelta sous forme HH:MM:SS
 	
-	-- todo --------------------------------------------------------------------------
-	ajouter la lecture d'un fichier de config pour les paramètres locaux
+	-- A Faire (to do) --------------------------------------------------------------------------
+	Bug cosmétique : Police 'Roboto Condensed' absente, géré l'erreur
+		voir : <https://matplotlib.org/stable/users/explain/text/fonts.html>
+		En attendant retour à "DejaVu Sans"
+	Affichage (txt et HTML) : mieux présenter en séparant Soleil et Lune et instant présent (élévation solaire par exemple)
+	Ajouter les paramètres locaux et les globales pour MatPlotLib dans default.ini (font, fontsize) ?
+	Ajouter la personnalisation des couleurs des courbes solaire dans default.ini ?
+	Proposer une option pour l'heure locale et l'heure UTC ?
+	Proposer une option pour l'aube et crépuscule (civile, nautique, astronomique)
+	Améliorer pour Astral 3 : utiliser Location() ?
+	HTML avec une présentation graphique par icone
+	
+	Vérification des calculs avec : https://www.ephemeride.com/, https://www.ephemeride-jour.fr/ et https://heuresolaire.com/ephem_day
 """
 
 # -- Bibliothèques  ---------------------------------------------------------------
+
 # Bibliothèques par défaut de Python
 import sys,getopt,os
-import datetime, pytz					# gestion date et temps + timezone
+from datetime import datetime,timedelta	# gestion date et heure standard
+from zoneinfo import ZoneInfo			# gestion des timezones (python 3.9+)
 import configparser						# gestion fichier.INI (paramètres et configuration)
-import codecs
+import codecs							# gestion utf des chaines
 import math,numpy as np					# calculs scientifique
-import astral							# Astral 1.6.1 (default version include in Debian 12
+import astral							# Astral 3.2 (version incluse pour Debian 13)
+import astral.sun,astral.moon
 from xml.etree import ElementTree as ET	# gestion elementtree pour créer le résultat HTML
 import webbrowser						# module pour ouvrir une URL dans le navigateur par défaut
-# Bibliothèques supplémentaires à installer
-import matplotlib.pyplot as plt			# matplot lib
+
+# Bibliothèques supplémentaires à installer (voir readme.md)
+import matplotlib.pyplot as plt			# matplotlib 3.3
+
+# définir le répertoire par défaut du script comme celui du source (gestion du lancement hors dossier source)
+path=os.path.dirname(os.path.abspath(__file__))
+os.chdir(path)
 
 # -- Constantes et globales ------------------------------------------------------
 _verbose=True
@@ -73,15 +100,22 @@ default_html_file="ephemeris.html"				# nom du fichier html généré
 maxDeclinaison=23.436							# déclinaison maximale du soleil / terre
 
 # personnalisation pour le diagramme solaire
-default_font="Roboto Condensed"
-default_fontsize=8
-color_sun="gold"
-color_hours='royalblue'
-color_halfhours='gray'
-
-# définit le répertoire par défaut comme celui du source (gestion du lancement hors dossier source)
-path=os.path.dirname(os.path.abspath(__file__))
-os.chdir(path)
+# default_font="Roboto Condensed"
+default_font="DejaVu Sans"					# back to default matplotlib font
+default_fontsize=8							# smallest readable for DejaVu Sans
+diagram_width=6.0							# taille du diagram en pouces (2.54 cm)
+diagram_height=5.0
+diagram_sun_halo=48							# diamètre du halo solaire (pixels)
+diagram_sun_disk=6							# diamètre du disque solaire (pixels)
+color_sun="gold"							# couleur du soleil sur le diagramme
+color_sun_halo="OrangeRed"					# couleur du halo solaire sur le diagramme
+color_coordinates="Red"						# couleur des coordonnées sur le diagramme
+color_hours='royalblue'						# couleurs pour la grille des heures
+color_halfhours='gray'						# couleur pour la grille des demi-heures
+color_decl_solstice_winter='IndianRed'		# couleurs pour les courbes des parcours solaire
+color_decl_equinox='BlueViolet'
+color_decl_solstice_summer='Teal'
+color_decl_current='OrangeRed'
 
 # -- Classes -----------------------------------------------------------------------
 
@@ -92,9 +126,9 @@ class Config():
 	"""
 
 	def __init__(self, filename=default_config):
-		# chargement des paramètre depuis le fichier de configuration (hubeau.ini)
+		# chargement des paramètre depuis le fichier de configuration (default.ini)
 		# avec valeurs par défaut si erreur de chargement ou valeur non définie
-		#	Paris, France
+		#	Location : Paris, France
 		self.location="Paris"
 		self.region="France"
 		self.latitude=48.859
@@ -118,7 +152,7 @@ class Config():
 			except Exception as ex:
 				print("error:",ex)
 			try:
-				self.longitude==float(config.get('observer','longitude'))
+				self.longitude=float(config.get('observer','longitude'))
 			except Exception as ex:
 				print("error:",ex)
 			try:
@@ -126,7 +160,7 @@ class Config():
 			except Exception as ex:
 				print("error:",ex)
 			try:
-				self.tz=config.get('observer','tz',fallback=None)
+				self.tz=config.get('observer','timezone',fallback=None)
 			except Exception as ex:
 				print("error:",ex)
 		except Exception as ex:
@@ -137,49 +171,70 @@ class Config():
 		return
 	
 	def __str__(self):
-		value=f"Observateur : {self.location} ({self.region}) / tz = {self.tz}"
-		value+=f"\n\tlat : {self.latitude:.4f}°, lon = {self.longitude:.4f}°, ele = {self.elevation:.1f} m"
+		value=f"Observateur : {self.location} ({self.region}) / timezone = {self.tz}"
+		value+=f"\n\tlatitude : {self.latitude:.4f}°, longitude = {self.longitude:.4f}°, altitude = {self.elevation:.1f} m"
 		return value
 
 class MoonPhase():
-	""" Gère les phases de la lune comme des désignation et des images d'illustration
-		converti la phase lunaire (entier entre 0 et 28) en une dénomination et une image
+	""" Gère les phases de la lune comme des désignations, des émoticones et des images d'illustration
+		converti depuis la phase lunaire calculé par Astral (flottant entre 0.0 et 27.99) en une dénomination et une image
 		Phases de la lune (ref : https://fr.wikipedia.org/wiki/Phase_de_la_Lune)
+		Emoticones : 
 		Images référence : https://starwalk.space/fr/moon-calendar
-		Les images doivent être dans le sous-dossier : ./html/phases
-		Cycle : 29.5 jours
+			Les images doivent être dans le sous-dossier : self.prefix
+		Cycle Lunaire : 29.5 jours
 	"""
 	def __init__(self, phase):
+		prefix="./phases/lune_"
 		self.phase=phase
-		self.prefix="./phases/lune_"
+		if phase<2.0 or phase>=28.0: 	
+			self.name="Nouvelle Lune"
+			self.emoticon="\U0001F311"
+			self.image="f{prefix}00.png"
+		elif phase<6.0:					
+			self.name="Premier croissant"
+			self.emoticon="\U0001F313"
+			self.image="f{prefix}01.png"
+		elif phase<9.0:					
+			self.name="Premier quartier"
+			self.emoticon="\U0001F314"
+			self.image="f{prefix}02.png"
+		elif phase<14.0:					
+			self.name="Lune Gibeuse croissante"
+			self.emoticon="\U0001F315"
+			self.image="f{prefix}03.png"
+		elif phase<17.0:					
+			self.name="Pleine Lune"
+			self.emoticon="\U0001F316"
+			self.image="f{prefix}04.png"
+		elif phase<22.0:					
+			self.name="Lune Gibeuse décroissante"
+			self.emoticon="\U0001F317"
+			self.image="f{prefix}05.png"
+		elif phase<25.0:					
+			self.name="Dernier quartier"
+			self.emoticon="\U0001F318"
+			self.image="f{prefix}06.png"
+		elif phase<28.0:					
+			self.name="Dernier croissant"
+			self.emoticon="\U0001F319"
+			self.image="f{prefix}07.png"
+		else:									
+			self.name=f"Erreur phase non géré : {phase}"
+			self.emoticon="\U0001FA90"
+			self.image="error.png"
 	
 	def getName(self):
-		if self.phase<2 or self.phase>=28: 	name="Nouvelle Lune"
-		elif self.phase<6:					name="Premier croissant"
-		elif self.phase<9:					name="Premier quartier"
-		elif self.phase<14:					name="Lune Gibeuse croissante"
-		elif self.phase<17:					name="Pleine Lune"
-		elif self.phase<22:					name="Lune Gibeuse décroissante"
-		elif self.phase<25:					name="Dernier quartier"
-		elif self.phase<28:					name="Dernier croissant"
-		else:								name=f"Erreur phase non géré : {self.phase}"
-		return name
+		return self.name
+
+	def getEmoticon(self):
+		return self.emoticon
 
 	def getPicture(self):
-		if self.phase<2 or self.phase>=28:	image="00.png"
-		elif self.phase<6:					image="01.png"
-		elif self.phase<9:					image="02.png"
-		elif self.phase<14:					image="03.png"
-		elif self.phase<17:					image="04.png"
-		elif self.phase<22:					image="05.png"
-		elif self.phase<25:					image="06.png"
-		elif self.phase<28:					image="07.png"
-		else:								image="error.png"
-		pictureName=self.prefix+image
-		return pictureName
+		return self.image
 
 class SunPhase():
-	""" Gère les dénomnations et couleurs du ciel suivant son élévation dans le ciel (degrés décimaux)
+	""" Gère les dénominations et couleurs du ciel suivant son élévation dans le ciel (degrés décimaux)
 		Les dénominations proviennent de Wikipédia :
 			https://fr.wikipedia.org/wiki/Couleur_du_ciel
 			https://fr.wikipedia.org/wiki/Heure_dorée
@@ -187,22 +242,47 @@ class SunPhase():
 		Les couleurs sont des dénominations de la norme X11, utilisés par SVG, CSS et HTML :
 			https://htmlcolorcodes.com/fr/noms-de-couleur/
 	"""
-	def __init__(self,elevation):
+	def __init__(self,elevation,target_date):
 		self.elevation=elevation
+		self.target_date=target_date
+		if target_date.hour<12:
+			prefix="Aube"
+		else:
+			prefix="Crépuscule"
+		if elevation>=6.0 :
+			self.name="Jour"
+			self.textcolor="Black"
+			self.backcolor="SkyBlue"
+		elif elevation<0.0 and elevation>=-6.0:
+			self.name=f"{prefix} civil"
+			self.textcolor="Black"
+			self.backcolor="DeepSkyBlue"
+		elif elevation<-0.5 and elevation>=4.0:	
+			self.name=f"{prefix} civil (heure dorée)"
+			self.textcolor="Black"
+			self.backcolor="Orange"
+		elif elevation<-4.0 and elevation>=-6.0:	
+			self.name=f"{prefix} ivil (Heure bleue)"
+			self.textcolor="Black"
+			self.backcolor="SteelBlue"
+		elif elevation<-6.0 and elevation>=-12.0:
+			self.name=f"{prefix} nautique"
+			self.textcolor="White"
+			self.backcolor="RoyalBlue"
+		elif elevation<-12.0 and elevation>=-18.0:
+			self.name=f"{prefix} astronomique"
+			self.textcolor="White"
+			self.backcolor="DarkBlue"
+		else:												
+			self.name="Nuit"
+			self.textcolor="White"
+			self.backcolor="MidnightBlue"
 	
 	def getName(self):
-		if self.elevation<-4.0 and self.elevation>-6.0:		color_name="Heure bleue"
-		elif self.elevation<6.0 and self.elevation>-4.0:	color_name="Heure dorée"
-		elif self.elevation>6.0 :							color_name="Jour"
-		else:												color_name="Nuit"
-		return(color_name)
+		return(self.name)
 
-	def getColor(self):
-		if self.elevation<-4.0 and self.elevation>-6.0:		color_html="SteelBlue"
-		elif self.elevation<6.0 and self.elevation>-4.0:	color_html="Orange"
-		elif self.elevation>6.0 :							color_html="SkyBlue"
-		else:												color_html="CornflowerBlue"
-		return(color_html)
+	def getColors(self):
+		return(self.textcolor,self.backcolor)
 
 class SolarDiagram():
 	"""
@@ -211,42 +291,59 @@ class SolarDiagram():
 		source : https://www.astrolabe-science.fr/diagramme-solaire-azimut-hauteur/
 		Utilise la librairie matplotlib.pyplot
 	"""
-	def __init__(self, latitude, timezone):
+	def __init__(self, title, latitude):
+		self.title=title
 		self.phi_degrees=latitude
 		self.phi_radians=np.radians(latitude)
 	
-	def calc(self,target_date=None,tz_identifier="Europe/Paris"):
+	def calc(self,target_date=None):
+		"""	target_date doit être défini avec tzinfo (not naive)
+		"""
 		if target_date==None :	# si pas de datetime alors prendre l'instant présent (now)
-			self.target_date=datetime.datetime.now()
+			print("SolarDiagram targetdate is not defined : back to now in UTC")
+			target_date=datetime.now(ZoneInfo('UTC'))
 		else:
-			self.target_date=target_date
+			if target_date.tzinfo==None:
+				print("SolarDiagram targetdate has no timezone : back to UTC")
+			else:
+				target_date=target_date.astimezone(ZoneInfo('Europe/Paris'))
+		dt=datetime.utcoffset(target_date)
+		dhours=dt.seconds/3600
+		if _debug:
+			print("TimeZone décalage : {dhours:%.1f} heure(s)")
+			
 		# Paramètres à personnaliser
 		plt.rcParams["font.family"]=default_font
 		plt.rcParams["font.size"]=default_fontsize
 		lat_str=str(self.phi_degrees)
+		
 		# min/max pour définir la taille du graphique
 		hauteurmax=90+maxDeclinaison-self.phi_degrees	# hauteur méridienne au 21 juin, pour l'échelle de hauteur
 		maxH=np.degrees(math.acos(-math.tan(self.phi_radians)*math.tan(np.radians(maxDeclinaison))))	# angle horaire maxi au 21 juin, pour les heures de lever/coucher
 		maxH=int(maxH/15)*15
-		maxAz=np.degrees(math.acos(-math.sin(np.radians(maxDeclinaison)/math.cos(self.phi_radians))))	# azimut maximal au lever/coucher, pour l'axe x
-		maxAz=int(maxAz/20+1)*20
+		maxAz=np.degrees(math.acos(-math.sin(np.radians(maxDeclinaison)/math.cos(self.phi_radians))))	# azimut maximal au lever/coucher (axe X)
+		maxAz=int((maxAz/20)+1)*20
+		
 		# vectorisation des fonctions hauteur et azimut, pour qu'elles puissent être appliquées à une liste de valeurs
 		liste_hauteur=np.vectorize(self.calcul_hauteur)
 		liste_azimut=np.vectorize(self.calcul_azimut)
+		
 		# paramètres et axes du graphique
-		fig=plt.figure(figsize=(5.0,5.0), tight_layout=True)	# taille en inch (2.54 cm)
+		fig=plt.figure(figsize=(diagram_width,diagram_height), tight_layout=True)
 		ax=plt.subplot()
 		plt.xticks(np.arange(-150, 200, 50))	# graduations chiffrées en azimut
 		plt.xlim(-maxAz, +maxAz)	# fixer les min/max
 		plt.title("Diagramme solaire azimut / hauteur")
-		plt.text(0.005, 0.993, f"Latitude {self.phi_degrees:.1f}°", color='red', va='top', fontsize=9, transform=ax.transAxes, bbox=dict(facecolor='white', edgecolor='black'))
+		plt.text(0.005, 0.993, f"{self.title} : {self.phi_degrees:.1f}°", color=color_coordinates, va='top', fontsize=9, transform=ax.transAxes, bbox=dict(facecolor='white', edgecolor='black'))
 		plt.ylim(0, int(hauteurmax+5))
 		plt.xlabel("Azimut (°)")
 		plt.ylabel("Hauteur (°)")
-		# points cardinaux (azimuts)
-		cardinaux={'N-E':-135,'Est': -90,'S-E': -45,'S-O': +45,'Ouest': +90,'N-O': +135}
+		
+		# échelle X des points cardinaux (azimuts)
+		cardinaux={'N-E':-135,'E':-90,'S-E':-45,'S-O':+45,'O':+90,'N-O':+135}
 		for direction in cardinaux:
-			plt.text(cardinaux[direction], -2.5, direction, va='top', ha='center', rotation=90)
+			plt.text(cardinaux[direction], -3.5, direction, va='top', ha='center', rotation=90)
+			
 		# Tracé de la grille azimut (axe X)
 		minor_xticks = np.arange(-maxAz, maxAz, 10)	# espaces de la grille
 		ax.set_xticks(minor_xticks, minor=True)
@@ -254,50 +351,54 @@ class SolarDiagram():
 		ax.set_yticks(minor_yticks, minor=True)
 		ax.grid(which='minor', alpha=0.5)
 		plt.grid()
-		# Tracé des lignes horaires (axe Y)
+		
+		# Tracé des lignes horaires et des heures sur le diagramme (axe Y)
 		decl=np.arange(-maxDeclinaison, +maxDeclinaison, 0.05)
 		for H in np.arange(-maxH, maxH+7.5, 7.5):
 			if H.is_integer()==False:	# demi-heures
 				props=dict(color=color_halfhours, alpha=0.5, lw=1)	# ligne fine et grise
 			else :	# heures pleines
-				props=dict(color=color_hours, alpha=1.0)	# ligne épaisse, en couleur (non grise)
+				props=dict(color=color_hours, alpha=1.0, lw=1)	# ligne fine, en couleur
 			X=liste_azimut(decl,H)
 			Y=liste_hauteur(decl,H)
 			plt.plot(X,Y, **props)
 			if H.is_integer():
-				if H>=0 :	# chiffres des heures
+				if H==0.0 :	# chiffres des heures
+					prop_chiffres=dict(ha='center')
+					X=1.01*max(X)
+				elif H>0.0 :	# chiffres des heures
 					prop_chiffres=dict(ha='left')
 					X=1.01*max(X)
-				elif H<0 :
+				elif H<0.0 :
 					prop_chiffres=dict(ha='right')
 					X=1.01*min(X)
-				plt.text(X, 1.01*max(Y), '%ih'%(12+H/15), fontweight='bold',**prop_chiffres)
-		# courbes de déclinaison (équinoxes, solstices et aujourd'hui)
-		couleursdecl=['IndianRed', 'BlueViolet', 'Teal','OrangeRed']
-		datesdecl=["Solstice d'hiver", "Equinoxes","Solstice d'été","Aujourd'hui"]
+				hour=(H/15)+12+dhours
+				plt.text(X, 1.01*max(Y), '%ih' % hour, fontweight='normal',**prop_chiffres)
+				
+		# courbes de déclinaison (solstices, équinoxes et aujourd'hui avec le décalage optionnel)
+		couleursdecl=[color_decl_solstice_winter, color_decl_equinox, color_decl_solstice_summer,color_decl_current]
+		datesdecl=["Solstice d'hiver","Équinoxes","Solstice d'été","Aujourd'hui (+décalage)"]
+		widthdecl=[1,1,1,2]
 		s=SolarPosition(target_date)
 		declinaison=s.getDeclinaison()
 		H = np.arange(-maxH-15, maxH+15, 1.0)	# liste des angles horaires
 		for i, D in enumerate([-maxDeclinaison, 0.0, +maxDeclinaison, declinaison]):
 			X=liste_azimut(D,H)
 			Y=liste_hauteur(D,H)
-			plt.plot(X, Y, color=couleursdecl[i], label=datesdecl[i])
+			plt.plot(X, Y, color=couleursdecl[i], label=datesdecl[i], lw=widthdecl[i])
+			
 		# ajout de la position solaire (cercle jaune) pour l'heure de target_date en UTC
-		# convert local time to UTC time
-		tz=pytz.timezone(tz_identifier)
-		target_date_local=tz.localize(target_date)
-		target_date_utc=target_date_local.astimezone(pytz.utc)
-		hd=target_date_utc.hour+target_date_utc.minute/60+target_date_utc.second/3600
+		# convertir en heure décimale
+		hd=target_date.hour+target_date.minute/60.0+target_date.second/3600.0-dhours
 		if _debug:
 			print("date :",target_date)
-			print("date (local) :",target_date_local)
-			print("date (UTC):",target_date_utc)
-			print("hour (UTC):",hd)
-		h=(hd-12.0)*15	# (heure décimale-12UTC) * 15
+			print("hour (local):",hd)
+		h=(hd-12.0)*15.0	# (heure décimale-12 UTC) * 15
 		x=self.calcul_azimut(declinaison,h)
 		y=self.calcul_hauteur(declinaison,h)
-		plt.plot(x,y,color=color_sun,marker='o',markersize=20,alpha=0.75)
-		plt.plot(x,y,color='OrangeRed',marker='o',markersize=6,alpha=1.0)
+		plt.plot(x,y,color=color_sun,marker='o',markersize=diagram_sun_halo,alpha=0.75)
+		plt.plot(x,y,color=color_sun_halo,marker='o',markersize=diagram_sun_disk,alpha=1.0)
+		
 		# enregistre le diagramme final (image PNG)
 		plt.legend()
 		path=os.path.join(".",default_directory)	# chemin pour la sauvegarde des résultats (images et html)
@@ -322,7 +423,7 @@ class Ephemeris():
 		__init__ :initialise l'objet avec un lieu
 		calc : calcul les éphémérides du lieu pour la date donnée
 	"""
-	def __init__(self, name, region, latitude, longitude, timezone, elevation):
+	def __init__(self, name, region, latitude, longitude, tzname, elevation):
 		"""
 		Prepare l'objet Ephemeris en l'initialisant avec une localisation sur terre
 			name :		nom de la position (ville)
@@ -332,14 +433,14 @@ class Ephemeris():
 			time-zone :	nom de la zone horaire (suivant des dénominations standard : {Région}/{Ville}, voir https://utctime.info/timezone/)
 			elevation :	hauteur du lieu (en mètres)
 		"""
-		self.location=astral.Location()
+		self.location=astral.LocationInfo()
 		self.location.name=name
 		self.location.region=region
 		self.location.latitude=latitude
 		self.location.longitude=longitude
-		self.location.timezone=timezone
-		self.location.elevation=elevation
-		self.location.solar_depression=6
+		self.location.timezone=tzname
+		self.elevation=elevation
+		self.solar_depression=6
 		self.dawn=None
 		self.sunrise=None
 		self.solar_moon=None
@@ -351,7 +452,7 @@ class Ephemeris():
 		
 	def calc(self,target_date=None):
 		""" Calcule les données pour le lieu (location) et le moment (target_date), via la bibliothèque 'astral'
-				target_date : date/heure du calcul (si None = date/heure temps réel)
+				target_date : date/heure du calcul (si None = date/heure temps réel), Aware mode (timezone))
 				dawn : aube (soleil de 6 à 0 degrés sous l'horizon, le matin)
 				sunrise : lever du soleil (quand le soleil est à 0.833 degrés sous l'horizon, le matin)
 				noon : midi solaire (quand le soleil est le plus haut dans le ciel)
@@ -363,31 +464,52 @@ class Ephemeris():
 				daylength : durée du jour (entre le lever et le coucher du soleil)
 				nightlength : durée de la nuit (entre le coucher et le lever du soleil)
 		"""
-		# si pas de date, prendre la date courante
-		if target_date==None :
-			self.target_date=datetime.datetime.now()
+		if target_date==None :	# si pas de datetime alors prendre l'instant présent (now)
+			print("Ephemeris targetdate is not defined : back to now in UTC")
+			target_date=datetime.now(ZoneInfo('UTC'))
 		else:
-			self.target_date=target_date
-		# calcul données de base (Astral 1.6.1)
-		self.dawn=self.location.dawn(date=target_date)
-		self.sunrise=self.location.sunrise(date=target_date)
-		self.noon=self.location.solar_noon(date=target_date)
-		self.solar_elevation=self.location.solar_elevation(dateandtime=self.target_date)
-		self.solar_elevation_noon=self.location.solar_elevation(dateandtime=self.noon)
-		self.sunset=self.location.sunset(date=target_date)
-		self.dusk=self.location.dusk(date=target_date)
-		self.moon_phase=self.location.moon_phase(date=target_date)
-		phase=MoonPhase(self.moon_phase)
-		self.moon_phase_name=phase.getName()
-		self.moon_phase_pict=phase.getPicture()
+			if target_date.tzinfo==None:
+				print("Ephemeris targetdate has no timezone : back to UTC")
+				target_date=target_date.astimezone(ZoneInfo('Europe/Paris'))
+		self.target_date=target_date
+		
+		# calcul données du soleil (sun)
+		sun=astral.sun.sun(self.location.observer,date=target_date,tzinfo=self.location.timezone,dawn_dusk_depression=self.solar_depression)
+		self.sun_dawn=sun['dawn']
+		self.sun_rise=sun['sunrise']
+		self.sun_noon=sun['noon']
+		self.sun_set=sun['sunset']
+		self.sun_dusk=sun['dusk']
+		self.solar_elevation=astral.sun.elevation(self.location.observer,dateandtime=target_date)
+		self.solar_elevation_noon=astral.sun.elevation(self.location.observer,dateandtime=self.sun_noon)
+		
+		# calcule données de la Lune (moon)
+		try:
+			self.moon_rise=astral.moon.moonrise(self.location.observer,date=target_date,tzinfo=self.location.timezone)
+			self.moon_set=astral.moon.moonset(self.location.observer,date=target_date,tzinfo=self.location.timezone)
+			self.moon_phase=astral.moon.phase(date=target_date)
+			phase=MoonPhase(self.moon_phase)
+			self.moon_phase_name=phase.getName()
+			self.moon_phase_pict=phase.getPicture()
+			self.moon_emoji=phase.getEmoticon()
+		except ValueError:
+			print(">>> Erreur : Pas de lever de lune à cet endroit.")
+			self.moon_phase=None
+			self.moon_rise=None
+			self.moon_set=None
+			self.moon_phase_name=None
+			self.moon_phase_pict=None
+			self.moon_emoji=None
+			
 		# calcul des durées à partir des horaires de base
-		daylight=self.location.daylight(date=target_date)
+		daylight=astral.sun.daylight(self.location.observer,date=target_date,tzinfo=self.location.timezone)
 		self.daylength=daylight[1]-daylight[0]
-		night=self.location.night(date=target_date)
+		night=astral.sun.night(self.location.observer,date=target_date,tzinfo=self.location.timezone)
 		self.nightlength=night[1]-night[0]
+		
 		# calcul de la veille pour déterminer la variation de durée du jour
-		target_date_previous=target_date+datetime.timedelta(days=-1)
-		daylight=self.location.daylight(date=target_date_previous)
+		target_date_previous=target_date+timedelta(days=-1)
+		daylight=astral.sun.daylight(self.location.observer,date=target_date_previous,tzinfo=self.location.timezone)
 		daylength=daylight[1]-daylight[0]
 		variation=self.daylength-daylength
 		self.day_increase_minutes=variation.total_seconds()/60.0
@@ -398,19 +520,25 @@ class Ephemeris():
 		elif self.target_date==None:
 			r="date non définie (fonction Ephemeris.calc)"
 		else:
-			sun=SunPhase(self.solar_elevation)
+			sun=SunPhase(self.solar_elevation,self.target_date)
 			colorname=sun.getName()
-			colorhtml=sun.getColor()
 			r=f"Éphéméride {self.location.name} ({self.location.region}) pour {self.target_date:%d/%m/%Y @ %H:%M}"
 			r=r+f"\n\tÉlévation        : {self.solar_elevation:.1f}° ({colorname})"
-			r=r+f"\n\tJour:Aube        : {self.dawn:%H:%M}"
-			r=r+f"\n\tJour:Lever       : {self.sunrise:%H:%M}"
-			r=r+f"\n\tJour:Culmination : {self.noon:%H:%M} (hauteur : {self.solar_elevation_noon:.1f}°)"
-			r=r+f"\n\tJour:Coucher     : {self.sunset:%H:%M}"
-			r=r+f"\n\tJour:Crépuscule  : {self.dusk:%H:%M}"
-			r=r+f"\n\tJour:Durée       : {self.daylength} ({self.day_increase_minutes:+.1f} minute(s))"
-			r=r+f"\n\tNuit:Phase       : {self.moon_phase_name} ({self.moon_phase:}/28)"
-			r=r+f"\n\tNuit:Durée       : {self.nightlength}"
+			r=r+f"\n\tJour:Aube        : {self.sun_dawn:%H:%M}"
+			r=r+f"\n\tJour:Lever       : {self.sun_rise:%H:%M}"
+			r=r+f"\n\tJour:Culmination : {self.sun_noon:%H:%M} (hauteur : {self.solar_elevation_noon:.1f}°)"
+			r=r+f"\n\tJour:Coucher     : {self.sun_set:%H:%M}"
+			r=r+f"\n\tJour:Crépuscule  : {self.sun_dusk:%H:%M}"
+			dl=fmtTimeDelta2HM(self.daylength)
+			r=r+f"\n\tJour:Durée       : {dl} ({self.day_increase_minutes:+.1f} minute(s))"
+			nl=fmtTimeDelta2HM(self.nightlength)
+			r=r+f"\n\tNuit:Durée       : {nl}"
+			if self.moon_phase :
+				r=r+f"\n\tLune:Phase       : {self.moon_phase_name} ({self.moon_phase:.1f}/28) [{self.moon_emoji}]"
+				r=r+f"\n\tLune:Lever       : {self.moon_set:%H:%M}"
+				r=r+f"\n\tLune:Coucher     : {self.moon_rise:%H:%M}"		
+			else:
+				r=r+"\n\tLune:Phase       : Pas de lune visible cette nuit"
 		return(r)
 	
 	def toHTML(self,diagram=None):
@@ -431,6 +559,7 @@ class Ephemeris():
 		title.text=f"{__appname__}"
 		style=ET.SubElement(head,'style')
 		style.text=default_css
+		
 		# création du corps, de la structure de base et ajout flottant de l'image du diagramme solaire
 		body=ET.SubElement(html,'body')
 		div=ET.SubElement(body,'div',attrib={'id':'diag'})
@@ -442,66 +571,84 @@ class Ephemeris():
 		h.text=f"Localisation : {self.location.name} ({self.location.region})"
 		h=ET.SubElement(div,'h3')
 		h.text=f"Date : {self.target_date:%d/%m/%Y @ %H:%M}"
+		
 		# création du tableau de données
 		table=ET.SubElement(div,'table')
 		# ligne 1 : Hauteur solaire
-		sun=SunPhase(self.solar_elevation)
+		sun=SunPhase(self.solar_elevation,self.target_date)
 		colorname=sun.getName()
-		colorhtml=sun.getColor()
+		(textcolor,backcolor)=sun.getColors()
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
 		cell.text=f"Hauteur du soleil"
-		cell=ET.SubElement(line,'td',attrib={'style':f'background-color: {colorhtml}'})
-		cell.text=f"{self.solar_elevation:.1f}° ({self.target_date:%H:%M}) {colorname}"
+		cell=ET.SubElement(line,'td',attrib={'style':f'color: {textcolor}; background-color: {backcolor};'})
+		cell.text=f"{self.solar_elevation:.1f}° ({colorname})"
 		# ligne 2 : Aube
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
 		cell.text=f"Aube"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.dawn:%H:%M}"
+		cell.text=f"{self.sun_dawn:%H:%M}"
 		# ligne 3 : Lever du soleil
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
-		cell.text=f"Lever"
+		cell.text=f"Lever du soleil"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.sunrise:%H:%M}"
+		cell.text=f"{self.sun_rise:%H:%M}"
 		# ligne 4 : Zénith solaire
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
-		cell.text=f"Culmination (Zenith)"
+		cell.text=f"Culmination (Zenith solaire)"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.noon:%H:%M}"
+		cell.text=f"{self.sun_noon:%H:%M}"
 		# ligne 5 : Coucher du soleil
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
-		cell.text=f"Coucher"
+		cell.text=f"Coucher du soleil"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.sunset:%H:%M}"
+		cell.text=f"{self.sun_set:%H:%M}"
 		# ligne 6 : Crépuscule
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
 		cell.text=f"Crépuscule"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.dusk:%H:%M}"
+		cell.text=f"{self.sun_dusk:%H:%M}"
 		# ligne 7 : Durée du jour
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
 		cell.text=f"Durée du jour"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.daylength} {self.day_increase_minutes:+.1f} minute(s)"
+		dl=fmtTimeDelta2HM(self.daylength)
+		cell.text=f"{dl} {self.day_increase_minutes:+.1f} minute(s)"
 		# ligne 8 : Durée de la nuit
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
 		cell.text=f"Durée de la nuit"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.nightlength}"
-		# ligne 9 : Phase lunaire (avec illustration)
+		nl=fmtTimeDelta2HM(self.nightlength)
+		cell.text=f"{nl}"
+		# ligne 9, 10 et 11 : Phase lunaire et heure lever/coucher
 		line=ET.SubElement(table,'tr')
 		cell=ET.SubElement(line,'td')
 		cell.text=f"Phase de la lune"
 		cell=ET.SubElement(line,'td')
-		cell.text=f"{self.moon_phase_name} ({self.moon_phase:}/28)"
-		img=ET.SubElement(cell,'img',attrib={'src':f"{self.moon_phase_pict}",'width':'30','height':'30'})
+		if self.moon_phase:
+			cell.text=f"{self.moon_phase_name} ({self.moon_phase:.1f}/28) [{self.moon_emoji}]"
+			# img=ET.SubElement(cell,'img',attrib={'src':f"{self.moon_phase_pict}",'width':'30','height':'30'})
+			line=ET.SubElement(table,'tr')
+			cell=ET.SubElement(line,'td')
+			cell.text=f"Lever de la lune"
+			cell=ET.SubElement(line,'td')	
+			cell.text=f"{self.moon_set:%H:%M}"
+			# ligne 11 : Coucher de lune
+			line=ET.SubElement(table,'tr')
+			cell=ET.SubElement(line,'td')
+			cell.text=f"Coucher de la lune"	
+			cell=ET.SubElement(line,'td')
+			cell.text=f"{self.moon_rise:%H:%M}"
+		else:
+			cell.text="Pas de lune visible cette nuit"
+
 		# Finalisation et enregistrement du fichier HTML complet
 		path=os.path.join(".",default_directory)	# chemin pour la sauvegarde des résultats (images et html)
 		url=os.path.join(path,default_html_file)
@@ -513,22 +660,23 @@ class Ephemeris():
 class SolarPosition():
 	""" Calcul des coordonnées équatoriales solaire, celle-ci dépend d'une date
 		Référence : https://fr.wikipedia.org/wiki/Syst%C3%A8me_de_coordonn%C3%A9es_%C3%A9quatoriales
-		Coordonnées indépendantes de la position de l'observateur est compsé de 2 angles :
+		Coordonnées indépendantes de la position de l'observateur est composé de 2 angles :
 			Ascension droite
 			Déclinaison
-		Ces coordonnées sont repérés dans la plan quatoriale (le plan qui passe par l'équateur de la Terre
-		soit l'équivalent spaciale des latitude et longitude terrestre projetées.
+		Ces coordonnées sont repérés dans la plan équatoriale (le plan qui passe par l'équateur de la Terre
+		soit l'équivalent céleste des latitude et longitude terrestre projetées.
 	"""
-	def __init__(self,date=None):
+	def __init__(self,date=None,tzname="Europe/Paris"):
+		self.tzname=tzname
 		if date==None:
-			self.date=datetime.datetime.now()
+			self.date=datetime.datetime.now(tz=ZoneInfo(tzname))
 		else:
 			self.date=date
 	
 	def getDeclinaison(self):
 		# numéro du jour de l'année
-		date0 = datetime.datetime(self.date.year, 1, 1)
-		dd=self.date-date0
+		dt0 = datetime(self.date.year, 1, 1,tzinfo=ZoneInfo(self.tzname))
+		dd=self.date-dt0
 		j=dd.days
 		# déclinaison solaire pour j
 		declinaison=maxDeclinaison*math.sin(2.0*math.pi*(j+284.0)/365.0)
@@ -605,7 +753,7 @@ class JulianDay():
 	
 	def getT(self):
 		"""	
-			J2000.0 : référence au jour Junien du 1/01/2000 12h
+			J2000.0 : référence au jour Julien du 1/01/2000 à midi
 			Aussi nommé "Epoque standard depuis 1984
 			En savoir plus : https://fr.wikipedia.org/wiki/J2000.0
 		"""
@@ -618,6 +766,12 @@ class JulianDay():
 
 # -- Fonctions -----------------------------------------------------------------------
 
+def fmtTimeDelta2HM(tdelta):
+	seconds=tdelta.total_seconds()
+	hours,seconds=divmod(seconds,3600)
+	minutes,seconds=divmod(seconds,60)
+	return f"{int(hours)}:{int(minutes):02}:{int(seconds):02}"
+	
 # Aide CLI : lettre-code : {nom-long, type de valeur, valeur par défaut, aide}
 arguments={	'h':("help",None,None,"aide"),
 			'd':("day","<int>",default_shift,"Décalage (en jours) par rapport à aujourd'hui"),
@@ -693,25 +847,30 @@ def main(argv):
 			_debug=not(_debug)
 		else:
 			print("ERREUR : paramètre",opt,"non géré")
+
 	# 3. Paramètres du lieu et moment d'observation (charger config)
 	config=Config()
 	if _verbose:
 		print(f"Observateur :     {config.location} ({config.region}) / timezone = {config.tz}")
 		print(f"                  lat : {config.latitude:.4f}°, lon = {config.longitude:.4f}°, ele = {config.elevation:.1f} m")
-	# date du calcul (aujourd'hui + décalage)
-	date=datetime.datetime.now()
-	targetDate=date+datetime.timedelta(days=shiftday)
+	
+	# date du calcul (aujourd'hui + décalage, en heure locale)
+	dt_local=datetime.now(tz=ZoneInfo(config.tz))
+	targetDate=dt_local+timedelta(days=shiftday)
+	if _verbose:
+		print(f"Date :            {targetDate:%d/%m/%Y @ %H:%M}")
 	if _debug:
-		print("aujourd'hui",date)
+		print("aujourd'hui",date_local)
 		print("offset",shiftday)
 		print("target",targetDate)
+
 	# 4. Calcul jour julien
 	jj=JulianDay()
 	jj.setDate(targetDate)
 	if _verbose:
-		print(f"Date :            {targetDate}")
 		print(f"Jour Julien :     {jj.JJ:.2f} TT")
 		print(f"Epoque standard : {jj.getT():.6f} J2000.0")
+
 	# 5. Calcul position solaire
 	# déclinaison solaire
 	s=SolarPosition(targetDate)
@@ -719,14 +878,17 @@ def main(argv):
 	if _verbose:
 		print(f"Déclinaison :     {sunDeclinaison:.2f}°")
 	# diagramme solaire
-	sd=SolarDiagram(config.latitude,sunDeclinaison)
-	sd.calc(targetDate,config.tz)
+	sd=SolarDiagram(f"{config.location} ({config.region})",config.latitude)
+	sd.calc(targetDate)
 	if default_solar: plt.show()
+
 	# 6. Calcul éphéméride
 	e=Ephemeris(config.location, config.region, config.latitude, config.longitude, config.tz, config.elevation)
 	e.calc(targetDate)
-	if _verbose: print(e)
-	if default_window: e.toHTML()
+	if _verbose: 
+		print(e)
+	if default_window: 
+		e.toHTML()
 
 if __name__ == '__main__' :
 	main(sys.argv[1:])
